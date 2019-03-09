@@ -2,6 +2,8 @@
 
 Tic Tac Toe played on a 3x3 grid of 3x3 grids where each move on the individual 3x3 grids determine which grid to play on for the next player.
 
+This version of the ai player is coded for Codingame's Multiplayer Bot Programming game [Ultimate Tic-Tac-Toe](https://www.codingame.com/multiplayer/bot-programming/tic-tac-toe).
+
 ## MCTS with UCB1 exploration
 
 See this [medium post](https://medium.com/@quasimik/monte-carlo-tree-search-applied-to-letterpress-34f41c86e238) with a rundown of the algorithm implemented here.
