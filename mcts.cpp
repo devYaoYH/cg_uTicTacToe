@@ -15,27 +15,59 @@
 #include <x86intrin.h> //AVX/SSE Extensions
 #endif
 
+//INCLUDES
 #include<bits/stdc++.h>
+#include<random>
+#include<iterator>
+#include<memory>
+#include<chrono>
 using namespace std;
-typedef pair<int, int> ii;
-typedef vector<ii> vii;
 
-int board[4][4];
+//DEFINES
+#define MYSELF 0
+#define ENEMY 1
+#define TIME_LIMIT_US 45000
 
-int adj[8][2] = {{0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}, {-1, -1}, {-1, 0}, {-1, 1}};
-int lines[8][3][2] = {
-    {{0, 0}, {0, 1}, {0, 2}},   //Horizontals
-    {{1, 0}, {1, 1}, {1, 2}},
-    {{2, 0}, {2, 1}, {2, 2}},
-    {{0, 0}, {1, 0}, {2, 0}},   //Verticals
-    {{0, 1}, {1, 1}, {2, 1}},
-    {{0, 2}, {1, 2}, {2, 2}},
-    {{0, 0}, {1, 1}, {2, 2}},   //Cross
-    {{0, 2}, {1, 1}, {2, 0}}
+/* RANDOM SELECTION */
+template <typename RandomGenerator = std::default_random_engine>
+struct random_selector
+{
+	//On most platforms, you probably want to use std::random_device("/dev/urandom")()
+	random_selector(RandomGenerator g = RandomGenerator(std::random_device()()))
+		: gen(g) {}
+
+	template <typename Iter>
+	Iter select(Iter start, Iter end) {
+		std::uniform_int_distribution<> dis(0, std::distance(start, end) - 1);
+		std::advance(start, dis(gen));
+		return start;
+	}
+
+	//convenience function
+	template <typename Iter>
+	Iter operator()(Iter start, Iter end) {
+		return select(start, end);
+	}
+
+	//convenience function that works on anything with a sensible begin() and end(), and returns with a ref to the value type
+	template <typename Container>
+	auto operator()(const Container& c) -> decltype(*begin(c))& {
+		return *select(begin(c), end(c));
+	}
+
+private:
+	RandomGenerator gen;
 };
+
+random_selector<> choice{};
 
 /* HEADER FILES */
 //TGrid.h
+
+const int play_EMPTY = -1;
+const int play_ERROR = -2;
+const int play_DRAW = -3;
+
 class TGrid{
     public:
         TGrid();
@@ -55,6 +87,8 @@ class TGrid{
 class SmallGrid: public TGrid{
     public:
         SmallGrid();
+        SmallGrid(const SmallGrid& other);
+        SmallGrid& operator=(SmallGrid& other);
         virtual ~SmallGrid();
 
         int getPos(int r, int c);
@@ -70,6 +104,8 @@ class SmallGrid: public TGrid{
 class LargeGrid: public TGrid{
     public:
         LargeGrid();
+        LargeGrid(const LargeGrid& other);
+        LargeGrid& operator=(LargeGrid& other);
         virtual ~LargeGrid();
         
         //Prints board to stderr
@@ -90,6 +126,10 @@ class LargeGrid: public TGrid{
 class Referee {
     public:
         Referee();
+        Referee(const Referee& other);
+        Referee& operator=(Referee& other);
+        int move(int idx, pair<int, int> cur_move);
+        LargeGrid* getBoard();
         virtual ~Referee();
         virtual int* run();
     private:
@@ -127,6 +167,23 @@ SmallGrid::SmallGrid(){
             grid[r][c] = -1;
         }
     }
+}
+
+SmallGrid::SmallGrid(const SmallGrid& other){
+    for (int r=0;r<3;++r){
+        for (int c=0;c<3;++c){
+            grid[r][c] = other.grid[r][c];
+        }
+    }
+}
+
+SmallGrid& SmallGrid::operator=(SmallGrid& other){
+    for (int r=0;r<3;++r){
+        for (int c=0;c<3;++c){
+            grid[r][c] = other.grid[r][c];
+        }
+    }
+    return *this;
 }
 
 int SmallGrid::getPos(int r, int c){
@@ -192,6 +249,27 @@ LargeGrid::LargeGrid(): prev_move(pair<int, int>(-1, -1)), last_played(pair<int,
             grid[r][c] = make_shared<SmallGrid>();
         }
     }
+}
+
+LargeGrid::LargeGrid(const LargeGrid& other): prev_move(other.prev_move), last_played(other.last_played){
+    for (int r=0;r<3;++r){
+        for (int c=0;c<3;++c){
+            grid[r][c] = make_shared<SmallGrid>(*(other.grid[r][c]));
+        }
+    }
+}
+
+LargeGrid& LargeGrid::operator=(LargeGrid& other){
+    prev_move.first = other.prev_move.first;
+    prev_move.second = other.prev_move.second;
+    last_played.first = other.last_played.first;
+    last_played.second = other.last_played.second;
+    for (int r=0;r<3;++r){
+        for (int c=0;c<3;++c){
+            grid[r][c] = make_shared<SmallGrid>(*(other.grid[r][c]));
+        }
+    }
+    return *this;
 }
 
 void LargeGrid::display(){
@@ -308,9 +386,8 @@ void LargeGrid::getValidLocations(vector<pair<int, int> >& output_list){
 LargeGrid::~LargeGrid() {}
 
 //MyReferee.cpp
-MyReferee::MyReferee(): turn_count(0){
-    hive = game;
-    for (int i=0;i<NUM_AGENTS;++i){
+Referee::Referee(): turn_count(0){
+    for (int i=0;i<2;++i){
         player_wins[i] = 0;
         player_rank[i] = 0;
     }
@@ -318,51 +395,49 @@ MyReferee::MyReferee(): turn_count(0){
     board = new LargeGrid();
 }
 
-bool MyReferee::run_agent(int idx){
+Referee::Referee(const Referee& other): turn_count(other.turn_count), last_move(other.last_move), board(nullptr){
+    for (int i=0;i<2;++i){
+        player_wins[i] = other.player_wins[i];
+        player_rank[i] = other.player_rank[i];
+    }
+    board = new LargeGrid(*(other.board));
+}
+
+Referee& Referee::operator=(Referee& other){
+    turn_count = other.turn_count;
+    player_wins[0] = other.player_wins[0];
+    player_wins[1] = other.player_wins[1];
+    player_rank[0] = other.player_rank[0];
+    player_rank[1] = other.player_rank[1];
+    last_move.first = other.last_move.first;
+    last_move.second = other.last_move.second;
+    delete board;
+    board = new LargeGrid(*(other.board));
+    return *this;
+}
+
+bool Referee::run_agent(int idx){
     //Query the board with last move to get list of valid locations
     vector<pair<int, int> > next_locations;
     board->getValidLocations(next_locations);
-    //Format it into a string to write to agent
-    string to_child = to_string(last_move.first) + " " + to_string(last_move.second) + "\n" + to_string(next_locations.size()) + "\n";
-    for (pair<int, int> p: next_locations){
-        to_child += to_string(p.first) + " " + to_string(p.second) + "\n";
+    //Play random available move
+    last_move = choice(next_locations);
+    //Check outcome of this move
+    int outcome = board->play(last_move, idx);
+    if (outcome == idx){
+        //Add to win boards
+        player_wins[idx]++;
     }
-    //Interact with agent to get response
-    string response;
-    ERR_CODES agent_status = hive->invoke_agent(idx, to_child, response);
-    if (agent_status == SUCCESS){
-        stringstream ss(response);
-        int a, b;
-        if (ss >> a && ss >> b){
-            last_move.first = a;
-            last_move.second = b;
-            //Check outcome of this move
-            int outcome = board->play(last_move, idx);
-            if (outcome == idx){
-                //Add to win boards
-                player_wins[idx]++;
-            }
-            else if (outcome == play_ERROR){
-                //Player made an invalid move
-                cerr << "Agent " << idx << " Made an INVALID move: " << response << endl;
-                return false;
-            }
-
-            //Only case where valid execution happens
-            return true;
-        }
-        else{
-            //Error badly formatted response
-            cerr << "Agent " << idx << " Responded with bad string: " << response << endl;
-        }
+    else if (outcome == play_ERROR){
+        //Player made an invalid move
+        cerr << "Agent " << idx << " Made an INVALID move: " << last_move.first << "," << last_move.second << endl;
+        return false;
     }
-    else{
-        cerr << "Agent " << idx << " Responded with ERROR CODE: " << ERR_STRINGS[agent_status] << endl;
-    }
-    return false;
+    //Only case where valid execution happens
+    return true;
 }
 
-bool MyReferee::turn(){
+bool Referee::turn(){
     turn_count++;
     //Run agents sequentially
     for (int i=0;i<2;++i){
@@ -427,12 +502,12 @@ bool MyReferee::turn(){
     return true;
 }
 
-void MyReferee::print_result(){
+void Referee::print_result(){
     cerr << "#####" << endl;
     cerr << player_rank[0] << " " << player_rank[1] << endl;
 }
 
-int* MyReferee::run(){
+int* Referee::run(){
     //Write initial move to agent
     do{
         cerr << "=====" << endl << turn_count << endl;
@@ -442,8 +517,35 @@ int* MyReferee::run(){
     return player_rank;
 }
 
-MyReferee::~MyReferee(){
+LargeGrid* Referee::getBoard(){
+    return board;
+}
+
+int Referee::move(int idx, pair<int, int> cur_move){
+    int outcome = board->play(cur_move, idx);
+    if (outcome == idx) player_wins[idx]++;
+    return board->winner();
+}
+
+Referee::~Referee(){
     delete board;
+}
+
+/*
+ * DECISION MAKING ALGO
+ */
+
+class MCTS{
+    public:
+        MCTS() {}
+        ~MCTS() {}
+        pair<int, int> play(Referee& cur_state, int time_limit_us);
+};
+
+pair<int, int> MCTS::play(Referee& cur_state, int time_limit_us){
+    vector<pair<int, int> > valid_moves;
+    cur_state.getBoard()->getValidLocations(valid_moves);
+    return choice(valid_moves);
 }
 
 /**
@@ -452,42 +554,41 @@ MyReferee::~MyReferee(){
  **/
 int main()
 {
-
+    /* Stack Variables */
+    Referee game = Referee();
+    MCTS decide = MCTS();
+    
     // game loop
     while (1) {
-        vii valid_actions;
+        vector<pair<int, int> > valid_actions;
         int opponentRow;
         int opponentCol;
         cin >> opponentRow >> opponentCol; cin.ignore();
         
         // Record opponent's move
-        board[opponentRow][opponentCol] = -1;
-        
+        if (opponentRow != -1){
+            game.move(ENEMY, pair<int, int>(opponentRow, opponentCol));
+        }
+
         int validActionCount;
         cin >> validActionCount; cin.ignore();
         for (int i = 0; i < validActionCount; i++) {
             int row;
             int col;
             cin >> row >> col; cin.ignore();
-            valid_actions.push_back(ii(row, col));
+            valid_actions.push_back(pair<int, int>(row, col));
         }
 
         // Write an action using cout. DON'T FORGET THE "<< endl"
         // To debug: cerr << "Debug messages..." << endl;
         
         int curR, curC;
-        ii insta_move = scanLines();
-        cerr<<insta_move.first<<" "<<insta_move.second<<endl;
-        if (insta_move.first != -1){
-            curR = insta_move.first;
-            curC = insta_move.second;
-        }
-        else{
-            curR = valid_actions[0].first;
-            curC = valid_actions[0].second;
-        }
+        pair<int, int> next_move = decide.play(game, TIME_LIMIT_US);
+        cerr << next_move.first << " " << next_move.second << endl;
         
-        cout<<curR<<" "<<curC<<endl;
-        board[curR][curC] = 1;
+        cout << next_move.first << " " << next_move.second << endl;
+        game.move(MYSELF, next_move);
     }
+
+    return 0;
 }
