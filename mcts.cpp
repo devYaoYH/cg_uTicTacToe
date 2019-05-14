@@ -307,21 +307,21 @@ void LargeGrid::display(){
 
 int LargeGrid::winner(){
     bool has_moves = false;
-    cerr << "-----" << endl;
+    //cerr << "-----" << endl;
     for (int r=0;r<3;++r){
-        cerr << '|';
+        //cerr << '|';
         for (int c=0;c<3;++c){
             int cell_winner = grid[r][c]->winner();
-            if (cell_winner == 0) cerr << 'o';
-            else if (cell_winner == 1) cerr << 'x';
-            else cerr << ' ';
+            //if (cell_winner == 0) cerr << 'o';
+            //else if (cell_winner == 1) cerr << 'x';
+            //else cerr << ' ';
             if (cell_winner == play_EMPTY){
                 has_moves = true;
             }
         }
-        cerr << '|' << endl;
+        //cerr << '|' << endl;
     }
-    cerr << "-----" << endl;
+    //cerr << "-----" << endl;
     for (int i=0;i<8;++i){
         //Check each line
         int winner = grid[winning_lines[i][0][0]][winning_lines[i][0][1]]->winner();
@@ -440,7 +440,9 @@ bool Referee::run_agent(int idx){
 bool Referee::turn(){
     turn_count++;
     //Run agents sequentially
-    for (int i=0;i<2;++i){
+    for (int j=0;j<2;++j){
+        //Always start with ENEMY move first
+        int i = (1 + j)%2;
         if (!run_agent(i)){
             //Agent reports error (crashes)
             player_wins[i] = -1;
@@ -534,18 +536,24 @@ Referee::~Referee(){
 /*
  * DECISION MAKING ALGO
  */
-
 class MCTS{
     public:
         MCTS() {}
         ~MCTS() {}
         pair<int, int> play(Referee& cur_state, int time_limit_us);
+    private:
+        map<string, set<pair<int, int> > > visited_states;
 };
 
 pair<int, int> MCTS::play(Referee& cur_state, int time_limit_us){
+    //Make a deep copy of our current state
+    Referee init_state = Referee(cur_state);
+    
+    //Pick a random move
     vector<pair<int, int> > valid_moves;
     cur_state.getBoard()->getValidLocations(valid_moves);
-    return choice(valid_moves);
+    pair<int, int> next_move = choice(valid_moves);
+    return next_move;
 }
 
 /**
